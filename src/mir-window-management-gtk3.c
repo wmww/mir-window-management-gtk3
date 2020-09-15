@@ -20,6 +20,14 @@ static const char *mir_wm_window_data_key = "mir-wm-data";
 static gboolean globals_initialized = FALSE;
 static struct zmir_wm_base_v1* mir_wm_base_v1_global = NULL;
 
+static enum zmir_shell_surface_v1_window_type into_proto_window_type(MirWmWindowType type) {
+    switch (type) {
+        case MIR_WM_WINDOW_TYPE_DEFAULT: return ZMIR_SHELL_SURFACE_V1_WINDOW_TYPE_DEFAULT;
+        case MIR_WM_WINDOW_TYPE_SATELLITE: return ZMIR_SHELL_SURFACE_V1_WINDOW_TYPE_SATELLITE;
+        default: g_error("Invalid window type %d", type); g_abort();
+    }
+}
+
 static void registry_global(
         void *_data,
         struct wl_registry *registry,
@@ -78,38 +86,46 @@ static void window_data_destroy(MirWmWindowData* data) {
     g_free(data);
 }
 
+static void on_window_realize(GtkWidget *window, MirWmWindowData *data) {
+    GdkWindow* gdk_window = gtk_widget_get_window(window);
+    struct wl_surface* wl_surface = gdk_wayland_window_get_wl_surface(gdk_window);
+
+    if (mir_wm_base_v1_global && wl_surface) {
+        data->mir_shell_surface = zmir_wm_base_v1_get_shell_surface(mir_wm_base_v1_global, wl_surface);
+        if (data->type != MIR_WM_WINDOW_TYPE_DEFAULT) {
+            zmir_shell_surface_v1_set_window_type(data->mir_shell_surface, into_proto_window_type(data->type));
+        }
+    } else {
+        g_warning("Failed to create zmir_shell_surface_v1");
+    }
+}
+
 static MirWmWindowData* get_window_data(GtkWindow *window) {
     MirWmWindowData* data = g_object_get_data(G_OBJECT(window), mir_wm_window_data_key);
 
     if (!data) {
         lazy_globals_init();
 
-        GdkWindow* gdk_window = gtk_widget_get_window(GTK_WIDGET(window));
-        struct wl_surface* wl_surface = gdk_wayland_window_get_wl_surface(gdk_window);
-
         data = g_new0(MirWmWindowData, 1);
         data->type = MIR_WM_WINDOW_TYPE_DEFAULT;
-        if (mir_wm_base_v1_global && wl_surface)
-            data->mir_shell_surface = zmir_wm_base_v1_get_shell_surface(mir_wm_base_v1_global, wl_surface);
-        else
-            g_warning("Failed to create zmir_shell_surface_v1");
 
         g_object_set_data_full(G_OBJECT(window), mir_wm_window_data_key, data, (GDestroyNotify)window_data_destroy);
+
+        g_signal_connect(window, "realize", G_CALLBACK(on_window_realize), data);
+        if (gtk_widget_get_realized(GTK_WIDGET(window))) {
+            on_window_realize(GTK_WIDGET(window), data);
+        }
     }
 
     return data;
 }
 
-static enum zmir_shell_surface_v1_window_type into_proto_window_type(MirWmWindowType type) {
-    switch (type) {
-        case MIR_WM_WINDOW_TYPE_DEFAULT: return ZMIR_SHELL_SURFACE_V1_WINDOW_TYPE_DEFAULT;
-        case MIR_WM_WINDOW_TYPE_SATELLITE: return ZMIR_SHELL_SURFACE_V1_WINDOW_TYPE_SATELLITE;
-        default: g_error("Invalid window type %d", type); g_abort();
-    }
-}
-
 void mir_wm_set_window_type(GtkWindow *window, MirWmWindowType type) {
     MirWmWindowData* data = get_window_data(window);
+    if (type == data->type)
+        return;
+
+    data->type = type;
     if (data->mir_shell_surface)
         zmir_shell_surface_v1_set_window_type(data->mir_shell_surface, into_proto_window_type(type));
 }

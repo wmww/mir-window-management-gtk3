@@ -38,9 +38,9 @@ static void activate(GtkApplication* app, void *_data)
         "</span>");
     gtk_container_add(GTK_CONTAINER(child_window), child_label);
     gtk_container_set_border_width(GTK_CONTAINER(child_window), 24);
-    gtk_widget_show_all(GTK_WIDGET(child_window));
 
     mir_wm_set_window_type(child_window, MIR_WM_WINDOW_TYPE_SATELLITE);
+    gtk_widget_show_all(GTK_WIDGET(child_window));
 }
 
 int main(int argc, char **argv)
